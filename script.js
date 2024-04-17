@@ -18,8 +18,8 @@ class World {
         if(this.cellIsAlive(cell)) {
             this.state[cell.x].delete(cell.y);
         }
-        if(this.state[cell.x].size == 0) {
-            this.state[cell.x] = null;
+        if(this.state[cell.x] && this.state[cell.x].size == 0) {
+            delete this.state[cell.x];
         }
     }
 
@@ -31,12 +31,12 @@ class World {
         }
     }
 
-    neighbors(cell) {
-        xBase = cell.x;
-        yBase = cell.y;
-        let n = [];
-        for(let xMod in [-1, 0, 1]) {
-            for(let yMod in [-1, 0, 1]) {
+    neighborhood(cell) {
+        let xBase = cell.x;
+        let yBase = cell.y;
+        let n = [cell];
+        for(let xMod of [-1, 0, 1]) {
+            for(let yMod of [-1, 0, 1]) {
                 if(xMod==0 && yMod==0) {
                     continue;
                 } else {
@@ -49,17 +49,52 @@ class World {
 
     iterate(){
         // calculate next state based on current grid
-        let changes = {deaths:[], births:[]};
-        let toExamine = [];
+        let changes = {deaths: [], births: [], unchanged: []};
+        let toExamine = {};
+        // determine all cells needing to be checked
+        for(let key of Object.keys(this.state)) {
+            let col = parseInt(key);
+            if(!this.state[col]) continue;    
+            for(let row of this.state[col]) {
+                toExamine[[col,row]] = 1;
+                var c = new Cell(col, row)
+                this.neighborhood(c).forEach(function(cell){
+                    toExamine[[cell.x, cell.y]] = 1;
+                })
+            }
+        }
+        // update changes with egocentric calculation of neighborhood of all 9 cells
+        for(let key of Object.keys(toExamine)){
+            let [colStr, rowStr] = key.split(',');
+            let cell = new Cell(colStr, rowStr);
+            let lifeSum = 0;
+            for(let neighbor of this.neighborhood(cell)) {
+                lifeSum += this.cellIsAlive(neighbor) ? 1 : 0;
+            }
+            switch(lifeSum) {
+                case 3:
+                    changes.births.push(cell);
+                    break;
+                case 4:
+                    changes.unchanged.push(cell);
+                    break;
+                default:
+                    changes.deaths.push(cell);
+
+            }
+
+        }
+        // update world state
+        changes.deaths.forEach(function(death) { this.remove(death) }.bind(this) );
+        changes.births.forEach(function(birth) { this.add(birth) }.bind(this) );
     }
 
 }
 
 class Cell {
-    constructor(x, y, state = false, age=0) {
-        this.x = x;
-        this.y = y;
-        this.age = age;
+    constructor(x, y) {
+        this.x = parseInt(x);
+        this.y = parseInt(y);
     }
     
     toString() {
@@ -128,7 +163,6 @@ function handleMouseDown(e) {
     if(e.buttons == 1 && e.ctrlKey) return; 
     var cell = currView.pixelToCell(e.clientX, e.clientY)
     g.toggle(cell);
-    console.log(g.state);
     renderFrame(g, currView);
 }
 
@@ -195,14 +229,17 @@ function renderGrid(view) {
 
 // Handle zooming with mouse scroll wheel
 function handleZoom(event) {
-    console.log('zoom' + event);
     var delta = event.deltaY || event.detail || event.wheelDelta;
     currView.zoom(delta);
     renderFrame(g, currView);
 }
 
-function advanceFrame(event) {
-    console.log('advance');
+function advanceFrame() {
+    g.iterate();
+    renderFrame(g, currView);
+    if(animate) {
+        window.requestAnimationFrame(advanceFrame)
+    }
 }
 
 function onViewMove(event) {
@@ -212,6 +249,15 @@ function onViewMove(event) {
     renderFrame(g, currView);
     lastMouseX = event.x;
     lastMouseY = event.y;
+}
+
+function startAnimation() {
+    animate=true;
+    window.requestAnimationFrame(advanceFrame);
+}
+
+function stopAnimation() {
+    animate=false;
 }
 
 // Initialize the game
@@ -228,7 +274,11 @@ function initGame(world, view) {
     });
     window.addEventListener("keypress", function(e) {
         if (e.key === "n") {
-            advanceFrame(g, currView);
+            advanceFrame();
+        } else if (e.key === "p") {
+            startAnimation();
+        } else if (e.key === "s") {
+            stopAnimation();
         }
     });
 
@@ -247,12 +297,14 @@ var canvas = document.createElement("canvas");
 var ctx = canvas.getContext("2d");
 
 // Define grid properties
-var cellSize = 50; // Size of each cell in pixels
+var cellSize = 12; // Size of each cell in pixels
 var gridColor = "#222"; // Color of grid lines
 
 // Define game properties
 var currView;
 var g = new World();
+
+var animate = false;
 
 var lastMouseX, lastMouseY;
 
