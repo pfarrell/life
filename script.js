@@ -4,22 +4,22 @@ class World {
     }
 
     cellIsAlive(cell) {
-        return(this.state[cell.cellX] && this.state[cell.cellX].has(cell.cellY));
+        return(this.state[cell.x] && this.state[cell.x].has(cell.y));
     }
 
     add(cell) {
-        if( !this.state[cell.cellX] ) {
-            this.state[cell.cellX] = new Set();
+        if( !this.state[cell.x] ) {
+            this.state[cell.x] = new Set();
         }
-        this.state[cell.cellX].add(cell.cellY);
+        this.state[cell.x].add(cell.y);
     }
 
     remove(cell) {
         if(this.cellIsAlive(cell)) {
-            this.state[cell.cellX].delete(cell.cellY);
+            this.state[cell.x].delete(cell.y);
         }
-        if(this.state[cell.cellX].size == 0) {
-            this.state[cell.cellX] = null;
+        if(this.state[cell.x].size == 0) {
+            this.state[cell.x] = null;
         }
     }
 
@@ -32,8 +32,8 @@ class World {
     }
 
     neighbors(cell) {
-        xBase = cell.cellX;
-        yBase = cell.cellY;
+        xBase = cell.x;
+        yBase = cell.y;
         let n = [];
         for(let xMod in [-1, 0, 1]) {
             for(let yMod in [-1, 0, 1]) {
@@ -51,20 +51,19 @@ class World {
         // calculate next state based on current grid
         let changes = {deaths:[], births:[]};
         let toExamine = [];
-
     }
 
 }
 
 class Cell {
     constructor(x, y, state = false, age=0) {
-        this.cellX = x;
-        this.cellY = y;
+        this.x = x;
+        this.y = y;
         this.age = age;
     }
     
     toString() {
-        return "Cell(x,y): (" + this.cellX + "," + this.cellY + ")";
+        return "Cell(x,y): (" + this.x + "," + this.y + ")";
     }
 }
 
@@ -72,52 +71,62 @@ class View {
     constructor(canvas, ctx, origin, cellSize) {
         this.origin = origin;
         this.context = ctx;
+        this.shiftX = 0;
+        this.shiftY = 0;
         this.cellSize = cellSize;
+        // Define zoom properties
+        this.scaleFactor = 1;
+        this.zoomSpeed = 0.1;
         this.updateCanvas(canvas);
     }
     
-    updateCanvas(canvas) {
-        this.canvas = canvas;
-        this.rows = Math.floor(canvas.height / this.cellSize);
-        this.cols = Math.floor(canvas.width / this.cellSize);
-        this.width = canvas.width;
-        this.height = canvas.height;
+    updateCanvas(canvas=null) {
+        if(canvas) { this.canvas = canvas; }
+        this.rows = Math.floor(this.canvas.height / this.cellSize);
+        this.cols = Math.floor(this.canvas.width / this.cellSize);
+        this.width = this.canvas.width;
+        this.height = this.canvas.height;
     }
 
-    pixelToCell(pixelX, pixelY, cellSize) {
-        let cellX = Math.floor(pixelX / cellSize);
-        let cellY = Math.floor(pixelY / cellSize);
+    shift(x, y) {
+        this.shiftX -= x;
+        this.shiftY -= y;
+        let func = this.shiftX < 0 ? Math.ceil : Math.floor;
+        this.origin.x += func(this.shiftX / this.cellSize);
+        func = this.shiftY < 0 ? Math.ceil : Math.floor;
+        this.origin.y += func(this.shiftY / this.cellSize);
+        this.shiftX = this.shiftX % this.cellSize;
+        this.shiftY = this.shiftY % this.cellSize;
+    }
+
+    pixelToCell(pixelX, pixelY) {
+        let cellX = Math.floor((pixelX + this.shiftX) / this.cellSize) + this.origin.x;
+        let cellY = Math.floor((pixelY + this.shiftY) / this.cellSize) + this.origin.y;
         return new Cell(cellX, cellY);
     }
 
     cellToPixel(cell) {
-        let pixelX = cell.x * this.cellSize;
-        let pixelY = cell.y * this.cellSize;
+        let pixelX = (cell.x - this.origin.x) * this.cellSize - this.shiftX;
+        let pixelY = (cell.y - this.origin.y) * this.cellSize - this.shiftY;
         return {x: pixelX, y: pixelY};
     }
-    
-}
 
-// Define canvas and context variables
-var canvas = document.createElement("canvas");
-var ctx = canvas.getContext("2d");
-
-// Define grid properties
-var cellSize = 25; // Size of each cell in pixels
-var gridColor = "#222"; // Color of grid lines
-
-// Define game properties
-var currView;
-var g = new World();
-
-
-
-function handleMouseMove(e) {
-    //console.log(e.clientX + ", " + e.clientY)
+    zoom(delta) {
+        if (delta > 0) {
+            this.cellSize = Math.max(this.cellSize *= .9, 1);
+        }else{
+            this.cellSize = Math.min(this.cellSize /= .9, 100);
+        }
+        this.updateCanvas();
+    }
 }
 
 function handleMouseDown(e) {
-    var cell = currView.pixelToCell(e.clientX, e.clientY, cellSize, currView)
+    lastMouseX = e.x;
+    lastMouseY = e.y;
+    // ctrl + left mouse click enables grid movement
+    if(e.buttons == 1 && e.ctrlKey) return; 
+    var cell = currView.pixelToCell(e.clientX, e.clientY)
     g.toggle(cell);
     console.log(g.state);
     renderFrame(g, currView);
@@ -142,14 +151,17 @@ function resizeCanvas(view) {
 }
 
 function renderFrame(world, view) {
-    renderGrid(view);
+    ctx.clearRect(0, 0, view.width, view.height);
+    if(view.cellSize > 15) {
+        renderGrid(view);
+    }
     renderCells(world, view);
 }
 
 function renderCells(world, view) {
-    lX = view.origin.cellX;
+    lX = view.origin.x;
     rX = lX + view.cols;
-    tY = view.origin.cellY;
+    tY = view.origin.y;
     bY = tY + view.rows;
 
     for(col=lX; col<=rX; col+=1) {
@@ -164,21 +176,18 @@ function renderCell(c) {
     let coords = view.cellToPixel(c);
     view.context.fillStyle = "green";
     view.context.fillRect(coords.x, coords.y, view.cellSize, view.cellSize);
-
 }
 
 // Render the grid on the canvas
 function renderGrid(view) {
-    ctx.clearRect(0, 0, view.width, view.height);
-
     ctx.beginPath();
     for (var i = 0; i <= view.rows; i++) {
-        ctx.moveTo(0, i * view.cellSize);
-        ctx.lineTo(view.width, i * view.cellSize);
+        ctx.moveTo(0, i * view.cellSize - view.shiftY);
+        ctx.lineTo(view.width, i * view.cellSize - view.shiftY);
     }
     for (var j = 0; j <= view.cols; j++) {
-        ctx.moveTo(j * view.cellSize, 0);
-        ctx.lineTo(j * view.cellSize, view.height);
+        ctx.moveTo(j * view.cellSize - view.shiftX, 0);
+        ctx.lineTo(j * view.cellSize - view.shiftX, view.height);
     }
     ctx.strokeStyle = gridColor;
     ctx.stroke();
@@ -186,25 +195,43 @@ function renderGrid(view) {
 
 // Handle zooming with mouse scroll wheel
 function handleZoom(event) {
+    console.log('zoom' + event);
     var delta = event.deltaY || event.detail || event.wheelDelta;
-
-    if (delta < 0) {
-        scaleFactor += zoomSpeed;
-    } else {
-        scaleFactor -= zoomSpeed;
-    }
-
-    scaleFactor = Math.max(0.1, scaleFactor); // Limit zoom out
+    currView.zoom(delta);
     renderFrame(g, currView);
+}
+
+function advanceFrame(event) {
+    console.log('advance');
+}
+
+function onViewMove(event) {
+    let dX = event.x - lastMouseX;
+    let dY = event.y - lastMouseY;
+    currView.shift(dX, dY);
+    renderFrame(g, currView);
+    lastMouseX = event.x;
+    lastMouseY = event.y;
 }
 
 // Initialize the game
 function initGame(world, view) {
     // Add event listeners
     window.addEventListener("resize", function(){ resizeCanvas(currView) }, false);
+    
     canvas.addEventListener("wheel", handleZoom);
-    canvas.addEventListener('mousemove', handleMouseMove, false);
     canvas.addEventListener('mousedown', handleMouseDown, false);
+    canvas.addEventListener("mousemove", function(e) {
+        if (e.ctrlKey && e.buttons === 1) { // Check for Ctrl key and left mouse button
+            onViewMove(e);
+        }
+    });
+    window.addEventListener("keypress", function(e) {
+        if (e.key === "n") {
+            advanceFrame(g, currView);
+        }
+    });
+
 
     // Initialize grid with dead cells
     for (var i = 0; i < currView.rows; i++) {
@@ -214,6 +241,20 @@ function initGame(world, view) {
         }
     }
 }
+
+// Define canvas and context variables
+var canvas = document.createElement("canvas");
+var ctx = canvas.getContext("2d");
+
+// Define grid properties
+var cellSize = 50; // Size of each cell in pixels
+var gridColor = "#222"; // Color of grid lines
+
+// Define game properties
+var currView;
+var g = new World();
+
+var lastMouseX, lastMouseY;
 
 // Initialize the canvas and the game
 v = initCanvas();
